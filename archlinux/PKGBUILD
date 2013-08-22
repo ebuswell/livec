@@ -1,0 +1,32 @@
+# Maintainer: Evan Buswell <ebuswell@gmail.com>
+_pkgname=livec
+pkgname=${_pkgname}-git
+pkgver=0.3
+pkgrel=1
+pkgdesc="Minimalist livecoding for C"
+arch=('i686' 'x86_64')
+license=(GPL2)
+makedepends=('git')
+options=('!strip')
+source=('git+https://github.com/ebuswell/livec.git')
+md5sums=('SKIP')
+
+pkgver() {
+  cd "${srcdir}/${_pkgname}"
+  _date="$(git log -1 --format='%cd' --date=short)"
+  _rev="$(git rev-list $(git rev-parse --since=${_date}T00:00:00) --count HEAD)"
+  _date="$(echo -n ${_date}|tr -d -- '-')"
+  echo "${_date}.${_rev}"
+}
+
+build() {
+  cd "${srcdir}/${_pkgname}"
+  ./autogen.sh
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd "${srcdir}/${_pkgname}"
+  make DESTDIR=${pkgdir} install
+}
