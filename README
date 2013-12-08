@@ -1,7 +1,17 @@
 Live C is a minimalist livecoding environment for C.
 
-See the file 'INSTALL' for generic instructions on how to compile and
-install this software.
+Requirements
+------------
+Live C requires atomickit. At the moment both should be the latest git.
+
+Installation
+------------
+Link config.def.mk to config.mk, or copy config.def.mk to config.mk and edit
+to match your local setup (this is installed under /usr/local by default).
+Then enter the following commands:
+
+	make
+	sudo make install
 
 ----------------------------------------------------------------------
 
