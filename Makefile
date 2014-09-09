@@ -1,4 +1,5 @@
-.PHONY: static all install-headers install-livec install-livec-static install-static install install install-strip uninstall clean check
+.PHONY: static all install-headers install-livec install-livec-static \
+        install-static install install install-strip uninstall clean check
 
 .SUFFIXES: .o
 
@@ -6,8 +7,10 @@ include config.mk
 
 VERSION=0.1
 
-OBJS=src/livec.o src/compile.o src/link.o src/main.o src/run.o
-HEADER=include/livec.h
+SRCS=src/livec.c src/compile.c src/link.c src/main.c src/run.c
+HEADERS=include/livec.h
+
+OBJS=${SRCS:.c=.o}
 
 all: livec
 
@@ -24,7 +27,7 @@ static: livec-static
 
 install-headers:
 	(umask 022; mkdir -p ${DESTDIR}${INCLUDEDIR})
-	install -m 644 ${HEADER} ${DESTDIR}${INCLUDEDIR}/livec.h
+	install -m 644 -t ${DESTDIR}${INCLUDEDIR} ${HEADERS}
 
 install-livec: livec
 	(umask 022; mkdir -p ${DESTDIR}${BINDIR})
@@ -58,3 +61,4 @@ clean:
 	rm -f ${OBJS}
 
 check:
+	echo "No check defined yet"
