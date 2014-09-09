@@ -24,131 +24,140 @@
 #include <string.h>
 #include <errno.h>
 #include <limits.h>
-#include <atomickit/atomic-rcp.h>
-#include <atomickit/atomic-string.h>
+#include <atomickit/rcp.h>
+#include <atomickit/string.h>
 
 #include "livec.h"
 #include "local.h"
 
+/* compile, link, and load the file */
+static void process_file(struct astr *sfilename) {
+	char *dsofile;
+	struct dso_entry *entry;
+	int r;
+	fprintf(stderr, PROCTEXT("Compiling %s...\n"), astr_cstr(sfilename));
+	dsofile = compile(sfilename);
+	if(dsofile == NULL) {
+		fprintf(stderr, ERRORTEXT("Compilation failed.\n"));
+		return;
+	}
+	fprintf(stderr, SUCCESSTEXT("Compilation succeeded.\n"));
+	fprintf(stderr, PROCTEXT("Loading %s...\n"), dsofile);
+	entry = load(dsofile);
+	if(entry == NULL) {
+		fprintf(stderr, ERRORTEXT("Load failed.\n"));
+		r = unlink(dsofile);
+		if(r != 0) {
+			fprintf(stderr, ERRORTEXT("Failed to unlink %s")
+			        ": %s\n", dsofile, strerror(errno));
+		}
+		return;
+	}
+	fprintf(stderr, SUCCESSTEXT("Load succeeded.\n"));
+	run(entry);
+}
+
+/* set up the appropriate watch on the directory indicated by sfilename */
+static int setup_inotify_watch(int notify_fd, struct astr *sfilename) {
+	char dirbuf[astr_len(sfilename) + 1];
+	char *dir;
+	int dwatch;
+
+	strcpy(dirbuf, astr_cstr(sfilename));
+	dir = dirname(dirbuf);
+	
+	dwatch = inotify_add_watch(notify_fd, dir,
+	                           IN_CLOSE_WRITE|IN_MOVED_TO);
+	if(dwatch <= 0) {
+		fprintf(stderr,
+		        ERRORTEXT("Fatal: failed to add inotify watch for %s")
+		        ": %s\n", dir, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
+	return dwatch;
+}
+
+/* basename which is guaranteed not to modify filename */
+static char *simple_basename(char *filename) {
+	char *ret = strrchr(filename, '/');
+	return ret == NULL ? filename : ++ret;
+}
+
 void watch_file() {
-    int r;
-    int notify_fd;
-    int dwatch;
-    struct astr *sfilename;
+	int r;
+	int notify_fd;
+	int dwatch;
+	struct astr *sfilename;
+	char *file;
+	uint8_t inotify_buf[sizeof(struct inotify_event) + NAME_MAX + 1];
+	struct inotify_event *event;
+	size_t i;
+	ssize_t len;
 
-    notify_fd = inotify_init();
-    if(notify_fd < 0) {
-	perror(ERRORTEXT("Failed to initialize inotify system"));
-	exit(EXIT_FAILURE);
-    }
+	/* initialize the inotify system */
+	notify_fd = inotify_init();
+	if(notify_fd < 0) {
+		perror(ERRORTEXT("Fatal: failed to initialize "
+		                 "inotify system"));
+		exit(EXIT_FAILURE);
+	}
 
-    for(;;) {
+setup_watch:
+	/* set up the inotify watch and associated variables */
 	sfilename = (struct astr *) arcp_load(&livec_opts.filename);
 	if(sfilename == NULL) {
-	    fprintf(stderr, ERRORTEXT("No filename defined\n"));
-	    exit(EXIT_FAILURE);
-	}
-	{
-	    char filebuf[astr_len(sfilename)];
-	    char dirbuf[astr_len(sfilename)];
-	    char *dir;
-	    char *file;
-	    bool modified;
-	    strcpy(filebuf, astr_cstr(sfilename));
-	    strcpy(dirbuf, astr_cstr(sfilename));
-	    dir = dirname(dirbuf);
-	    file = basename(filebuf);
-
-	    dwatch = inotify_add_watch(notify_fd, dir, IN_CLOSE_WRITE|IN_MOVED_TO|IN_MOVE_SELF);
-	    if(dwatch <= 0) {
-		fprintf(stderr, ERRORTEXT("Failed to add inotify watch for %s") ": %s\n", dir, strerror(errno));
+		fprintf(stderr, ERRORTEXT("Fatal: no filename defined\n"));
 		exit(EXIT_FAILURE);
-	    }
-	    goto modified;
-	    while(sfilename == (struct astr *) arcp_load_phantom(&livec_opts.filename)) {
-		static uint8_t buf[sizeof(struct inotify_event) + NAME_MAX + 1];
-		size_t i;
-		ssize_t len;
-		len = read(notify_fd, buf, sizeof(struct inotify_event) + NAME_MAX + 1);
-		if(len <= 0) {
-		    perror(ERRORTEXT("read() of inotify event failed"));
-		    continue;
-		}
-		for(i = 0; i <= len - sizeof(struct inotify_event);) {
-		    struct inotify_event *event = (struct inotify_event *) &buf[i];
-		    i += sizeof(struct inotify_event) + event->len;
+	}
 
-		    if(event->wd == dwatch) {
-			if(event->mask & IN_MOVE_SELF) {
-			    struct astr *newfilename;
-			    newfilename = astr_alloc(strlen(event->name) + 1 + strlen(file) + 1);
-			    if(newfilename == NULL) {
-				perror(ERRORTEXT("Failed to create new file string"));
-				exit(EXIT_FAILURE);
-			    }
-			    astr_cstrcpy(newfilename, event->name);
-			    astr_cstrcat(newfilename, "/");
-			    astr_cstrcat(newfilename, file);
-			    arcp_compare_store(&livec_opts.filename, sfilename, newfilename);
-			    arcp_release(sfilename);
-			    sfilename = newfilename;
-			} else if((event->mask & (IN_CLOSE_WRITE|IN_MOVED_TO))
-				  && (strcmp(event->name, file) == 0)) {
-			    modified = true;
+	file = simple_basename(astr_cstr(sfilename));
+
+	dwatch = setup_inotify_watch(notify_fd, sfilename);
+
+	/* process the file */
+	process_file(sfilename);
+
+	/* main watch loop */
+	for(;;) {
+		if(sfilename != (struct astr *)
+		   arcp_load_phantom(&livec_opts.filename)) {
+			/* the filename option has changed; remove the watch
+ 			 * and restart */
+			arcp_release(sfilename);
+			r = inotify_rm_watch(notify_fd, dwatch);
+			if(r != 0) {
+				perror(ERRORTEXT("Failed to clean"
+				                 " up old watch"));
 			}
-		    }
+			goto setup_watch;
 		}
-		if(modified) {
-		modified:
-		    {
-			char *dsofile;
-			struct dso_entry *entry;
-			modified = false;
-			r = fprintf(stderr, PROCTEXT("Compiling %s...\n"), astr_cstr(sfilename));
-			if(r < 0) {
-			    perror(ERRORTEXT("Unable to print compilation notification"));
-			}
-			dsofile = compile(sfilename);
-			if(dsofile == NULL) {
-			    r = fprintf(stderr, ERRORTEXT("Compilation failed.\n"));
-			    if(r < 0) {
-				perror(ERRORTEXT("Unable to print compilation failure message"));
-			    }
-			    continue;
-			}
-			r = fprintf(stderr, SUCCESSTEXT("Compilation succeeded.\n"));
-			if(r < 0) {
-			    perror(ERRORTEXT("Unable to print compilation success message"));
-			}
-			r = fprintf(stderr, PROCTEXT("Loading %s...\n"), dsofile);
-			if(r < 0) {
-			    perror(ERRORTEXT("Unable to print load notification"));
-			}
-			entry = load(dsofile);
-			if(entry == NULL) {
-			    r = fprintf(stderr, ERRORTEXT("Load failed.\n"));
-			    if(r < 0) {
-				perror(ERRORTEXT("Unable to print load failure message"));
-			    }
-			    r = unlink(dsofile);
-			    if(r != 0) {
-				fprintf(stderr, ERRORTEXT("Failed to unlink %s") ": %s\n", dsofile, strerror(errno));
-			    }
-			    continue;
-			}
-			r = fprintf(stderr, SUCCESSTEXT("Load succeeded.\n"));
-			if(r < 0) {
-			    perror(ERRORTEXT("Unable to print load success message"));
-			}
-			run(entry);
-		    }
+		/* block until there's at least one event to be notified
+ 		 * about */
+		len = read(notify_fd, inotify_buf,
+		           sizeof(struct inotify_event) + NAME_MAX + 1);
+		if(len <= 0) {
+			perror(ERRORTEXT("read() of inotify event failed"));
+			continue;
 		}
-	    }
+		/* read through all events */
+		for(i = 0; i <= len - sizeof(struct inotify_event);) {
+			event = (struct inotify_event *) &inotify_buf[i];
+			i += sizeof(struct inotify_event) + event->len;
+
+			if(event->wd != dwatch) {
+				/* FIXME: why wouldn't this be the same? */
+				continue;
+			}
+			if((event->mask & (IN_CLOSE_WRITE|IN_MOVED_TO))
+			   && (strcmp(event->name, file) == 0)) {
+				/* FIXME: do we need the event mask test
+ 				 * here? */
+				/* the (directory) event was about the file
+ 				 * we're interested in */
+				process_file(sfilename);
+				break;
+			}
+		}
 	}
-	arcp_release(sfilename);
-	r = inotify_rm_watch(notify_fd, dwatch);
-	if(r != 0) {
-	    perror(ERRORTEXT("Failed to clean up old watch"));
-	}
-    }
 }
