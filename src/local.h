@@ -30,10 +30,13 @@ char *compile(struct astr *sfilename) __attribute__((visibility("hidden")));
 struct dso_entry *load(char *dsofile) __attribute__((visibility("hidden")));
 void watch_file(void) __attribute__((visibility("hidden")));
 void run(struct dso_entry *entry) __attribute__((visibility("hidden")));
+void setup_signal_handling(void) __attribute__((visibility("hidden")));
 
 struct argstruct {
 	int argc;
 	char **argv;
 };
+
+extern pthread_t main_thread __attribute__((visibility("hidden")));
 
 extern struct argstruct args __attribute__((visibility("hidden")));

@@ -310,6 +310,8 @@ static void parse_opts(int argc, char **argv) {
 	}
 }
 
+pthread_t main_thread __attribute__((visibility("hidden")));
+
 /* don't clutter the space */
 int main(int argc, char **argv) __attribute__((visibility("hidden")));
 
@@ -321,13 +323,19 @@ int main(int argc, char **argv) {
 	/* create the thread-specific storage key for dso_entry */
 	r = pthread_key_create(&entry_key, (void (*)(void *)) arcp_release);
 	if(r != 0) {
-		fprintf(stderr, ERRORTEXT("Failed to create thread-specific"
-		                          " storage key for dso_entry")
- 		                          ": %s\n", strerror(r));
+		fprintf(stderr, ERRORTEXT("Fatal: Failed to create"
+		                          " thread-specific storage key for"
+					  " dso_entry") ": %s\n",
+		                          strerror(r));
 		exit(EXIT_FAILURE);
 	}
 
 	umask(077);
+
+	main_thread = pthread_self();
+
+	/* set up signal catching */
+	setup_signal_handling();
 
 	watch_file();
 

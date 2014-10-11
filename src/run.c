@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <signal.h>
 #include <atomickit/rcp.h>
 
 #include "livec.h"
@@ -44,6 +45,7 @@ static void *thread_run(struct dso_entry *entry) {
 	} else {
 		fprintf(stderr, SUCCESSTEXT("Thread finished\n"));
 	}
+	arcp_release(entry);
 	return NULL;
 }
 
@@ -88,3 +90,105 @@ void run(struct dso_entry *entry) {
 	}
 }
 
+/* sync signal handler */
+static void handle_fatal_signal(int signum, siginfo_t *info,
+                                void *context __attribute__((unused))) {
+	if(pthread_self() == main_thread) {
+		/* do default action (die in some way) */
+		signal(signum, SIG_DFL);
+		raise(signum);
+	} else {
+		/* terminate the receiving thread */
+		psiginfo(info, ERRORTEXT("Thread received fatal signal"));
+		/* this should be reincorporated */
+		/* arcp_release((struct arcp_region *) pthread_getspecific(entry_key)); */
+		pthread_exit(NULL);
+	}
+}
+
+void setup_signal_handling() {
+	int r;
+	struct sigaction act;
+
+	act.sa_flags = SA_SIGINFO;
+	act.sa_sigaction = handle_fatal_signal;
+
+	r = sigemptyset(&act.sa_mask);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to clear signal mask"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaddset(&act.sa_mask, SIGABRT);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to add SIGABRT to signal"
+		                 " mask"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaddset(&act.sa_mask, SIGBUS);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to add SIGBUS to signal"
+		                 " mask"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaddset(&act.sa_mask, SIGFPE);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to add SIGBUS to signal"
+		                 " mask"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaddset(&act.sa_mask, SIGILL);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to add SIGILL to signal"
+		                 " mask"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaddset(&act.sa_mask, SIGSEGV);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to add SIGSEGV to signal"
+		                 " mask"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaddset(&act.sa_mask, SIGSYS);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to add SIGSYS to signal"
+		                 " mask"));
+		exit(EXIT_FAILURE);
+	}
+
+	r = sigaction(SIGABRT, &act, NULL);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to install handler for signal"
+		                 " SIGABRT"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaction(SIGBUS, &act, NULL);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to install handler for signal"
+		                 " SIGBUS"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaction(SIGFPE, &act, NULL);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to install handler for signal"
+		                 " SIGFPE"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaction(SIGILL, &act, NULL);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to install handler for signal"
+		                 " SIGILL"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaction(SIGSEGV, &act, NULL);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to install handler for signal"
+		                 " SIGSEGV"));
+		exit(EXIT_FAILURE);
+	}
+	r = sigaction(SIGSYS, &act, NULL);
+	if(r != 0) {
+		perror(ERRORTEXT("Fatal: Failed to install handler for signal"
+		                 " SIGSYS"));
+		exit(EXIT_FAILURE);
+	}
+}
