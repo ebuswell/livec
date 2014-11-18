@@ -262,11 +262,19 @@ struct dso_entry *load(char *dsofile) {
 
 	entry->dsofile = dsofile;
 
+	/* clear dlerror */
+	dlerror();
+
 	/* do the actual dlopen */
 	entry->dlhandle = dlopen(dsofile, RTLD_NOW|RTLD_LOCAL);
 	if(entry->dlhandle == NULL) {
+		char *error;
+		error = dlerror();
+		if(error == NULL) {
+			error = strerror(errno);
+		}
 		fprintf(stderr, ERRORTEXT("Could not dlopen %s") ": %s\n",
-		        dsofile, strerror(errno));
+		        dsofile, error);
 		goto error1;
 	}
 
