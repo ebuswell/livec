@@ -45,7 +45,7 @@ static void *thread_run(struct dso_entry *entry) {
 	} else {
 		fprintf(stderr, SUCCESSTEXT("Thread finished\n"));
 	}
-	arcp_release(entry);
+	/* arcp_release(entry); */
 	return NULL;
 }
 
