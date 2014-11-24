@@ -45,7 +45,6 @@ static void *thread_run(struct dso_entry *entry) {
 	} else {
 		fprintf(stderr, SUCCESSTEXT("Thread finished\n"));
 	}
-	/* arcp_release(entry); */
 	return NULL;
 }
 
@@ -100,8 +99,6 @@ static void handle_fatal_signal(int signum, siginfo_t *info,
 	} else {
 		/* terminate the receiving thread */
 		psiginfo(info, ERRORTEXT("Thread received fatal signal"));
-		/* this should be reincorporated */
-		/* arcp_release((struct arcp_region *) pthread_getspecific(entry_key)); */
 		pthread_exit(NULL);
 	}
 }

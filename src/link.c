@@ -203,6 +203,7 @@ static int autolink_relink(struct dso_entry *dso_entry) {
 			continue;
 		}
 		arcp_store(&entry->afptr, afptr);
+		arcp_release(afptr);
 	}
 	return ret;
 }
@@ -292,6 +293,8 @@ struct dso_entry *load(char *dsofile) {
 	if(r != 0) {
 		goto error2;
 	}
+
+	arcp_release(entry_f);
 
 	return entry;
 
